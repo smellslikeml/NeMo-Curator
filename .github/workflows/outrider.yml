@@ -16,6 +16,17 @@ on:
   #     # Daily at 14:00 UTC
   #     - cron: '0 14 * * *'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Action mode (recommend | fidelity | convention | test | weekly-summary)'
+        required: false
+        default: 'recommend'
+        type: string
+      pr-number:
+        description: 'PR number — only read in fidelity/convention/test modes'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   recommend:
@@ -46,6 +57,14 @@ jobs:
           interest-id: 033fb0f3-9246-4c90-a8b8-0939b2ac44e0
           # remyx[bot] token (empty → action falls back to GITHUB_TOKEN).
           github-token: ${{ steps.remyx-bot.outputs.token }}
+          # Mode + pr-number passthroughs; default to recommend so the
+          # scheduled cron path runs unchanged. Manual dispatches can set
+          # mode=fidelity/convention/test with a pr-number to operate on
+          # an existing PR (replaces the deprecated standalone refinement
+          # workflows; the inline chain in recommend mode covers the
+          # normal flow).
+          mode: ${{ inputs.mode || 'recommend' }}
+          pr-number: ${{ inputs.pr-number || '' }}
           # Disable the per-repo rate-limit window so manual and scheduled
           # runs always evaluate the latest recommendation. Without this the
           # default 7-day floor short-circuits runs at skipped_rate_limit

@@ -105,6 +105,10 @@ class OCRData(ImageTaskData):
     # matching the verifier prompt/response convention. This differs from OCRDenseItem.bbox_2d
     # which uses the standard [x0, y0, x1, y1] convention from NemotronOCR-v2.
     ocr_scoring_missing: list[dict] | None = None
+    # Provenance-grounded recovery record written by OCRScoringQAStage when a
+    # would-be-discarded image is salvaged via adaptive recovery (see
+    # nemo_curator.stages.synthetic.omni.ocr_quality_recovery).
+    ocr_recovery: dict | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> OCRData:
@@ -132,4 +136,5 @@ class OCRData(ImageTaskData):
             ocr_scoring_response_raw=data.get("ocr_scoring_response_raw"),
             ocr_scoring_mode=data.get("ocr_scoring_mode"),
             ocr_scoring_missing=data.get("ocr_scoring_missing"),
+            ocr_recovery=data.get("ocr_recovery"),
         )

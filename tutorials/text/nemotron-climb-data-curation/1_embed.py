@@ -19,6 +19,7 @@ from utils import attach_ray_client_args, create_ray_client
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.embedders.base import EmbeddingCreatorStage
+from nemo_curator.stages.text.embedders.embedding_refiner import EmbeddingRefinerStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 from nemo_curator.stages.text.modules.add_id import AddId
@@ -78,6 +79,17 @@ def main(args: argparse.Namespace) -> None:
         )
     )
 
+    # Optionally refine embeddings with EmbedFilter before they are written and clustered.
+    # Removing the dominant, frequency-aligned subspace sharpens semantics and reduces
+    # dimensionality (set --embedding-dim in 2_cluster.py to match the refined dimension).
+    if args.embedding_filter_path is not None:
+        pipeline.add_stage(
+            EmbeddingRefinerStage(
+                embedding_field=args.embedding_field,
+                filter_path=args.embedding_filter_path,
+            )
+        )
+
     pipeline.add_stage(writer(path=args.output_path, fields=[args.id_field, args.text_field, args.embedding_field]))
 
     pipeline.run()
@@ -114,6 +126,7 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--disable-sort-by-length", action="store_true")
     parser.add_argument("--hf-token", type=str, default=None)
     parser.add_argument("--transformers-init-kwargs", type=json.loads, default={})
+    parser.add_argument("--embedding-filter-path", type=str, default=None)
 
     # Writer args
     parser.add_argument("--output-path", type=str, required=True)

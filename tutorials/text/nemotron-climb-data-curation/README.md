@@ -362,3 +362,42 @@ To follow the [Nemotron-CLIMB paper](https://arxiv.org/pdf/2504.13161) exactly:
 - Use the final data mixture for full-scale LLM training.
 
 By iteratively refining the data mixture across three rounds (64 -> 32 -> 16 -> 1), the predictor is trained on an increasingly rich set of mixture-performance pairs, resulting in a more accurate estimate of the optimal data mixture. The final mixture can then be used to train a full-scale LLM with a data composition that is empirically grounded in downstream benchmark performance.
+
+## Optional: Embedding Refinement with EmbedFilter
+
+Adapted from [Your UnEmbedding Matrix is Secretly a Feature Lens for Text Embeddings](https://arxiv.org/abs/2606.07502) (EmbedFilter).
+
+LLM-derived text embeddings tend to over-express a few directions that correlate with frequent-but-uninformative tokens, which can blur the semantic structure that K-Means relies on in step 2. EmbedFilter removes that dominant subspace with a single fixed linear transformation, sharpening the embeddings and -- as a byproduct -- reducing their dimensionality (smaller centroids, faster clustering and retrieval).
+
+`1_embed.py` accepts an optional `--embedding-filter-path` pointing at a serialized filter. When provided, an `EmbeddingRefinerStage` is inserted after the embedding stage and before the writer, refining the embedding column in place so no downstream step changes.
+
+Fit a filter once on a representative sample of embeddings (for example, the output of an initial `1_embed.py` run) and save it:
+
+```python
+import numpy as np
+import pandas as pd
+from nemo_curator.stages.text.embedders.embedding_refiner import EmbeddingSubspaceFilter
+
+# Load a sample of already-computed embeddings, e.g. from /path/to/computed_embeddings
+sample = pd.read_parquet("/path/to/computed_embeddings")
+embeddings = np.asarray(sample["embeddings"].tolist(), dtype=np.float32)
+
+# Drop the top frequency-aligned direction and keep 512 refined dimensions.
+emb_filter = EmbeddingSubspaceFilter.fit(embeddings, num_components_to_remove=1, output_dim=512)
+emb_filter.save("/path/to/embedding_filter.npz")
+```
+
+Then re-run step 1 with the filter applied:
+
+```bash
+python 1_embed.py \
+    --input-path /path/to/input/data/dir \
+    --input-filetype "jsonl" \
+    --output-path /path/to/refined_embeddings \
+    --text-field "text" \
+    --id-field "_curator_climb_id" \
+    --use-sentence-transformer \
+    --embedding-filter-path /path/to/embedding_filter.npz
+```
+
+Because the filter is fixed, it is applied identically to every shard, so the refined embedding space stays consistent across the dataset. Set `--embedding-dim` in step 2 to match the refined dimension (for the example above, 2-3x of 512).

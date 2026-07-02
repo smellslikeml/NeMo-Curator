@@ -40,6 +40,7 @@ from nemo_curator.stages.synthetic.omni.ocr_dense_qa import (
     build_dense_conversation,
     build_qa_tagged,
 )
+from nemo_curator.stages.synthetic.omni.ocr_quality_recovery import attempt_recovery
 from nemo_curator.tasks.ocr import OCRData
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
@@ -150,6 +151,7 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         max_text_errors: int = 0,
         fail_on_missing_text: bool = False,
         dense_dump_prob: float = 0.05,
+        recovery_margin: int = 2,
         batch_size: int | None = None,
         priority_mode: bool = False,
     ) -> None:
@@ -176,6 +178,13 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
                 low because the verifier tends to under-report missing
                 text, so "provably complete" fires more often than the
                 underlying coverage warrants.
+            recovery_margin: Adaptive-recovery budget applied when an image
+                would otherwise be discarded because no bbox cleared the
+                strict gate.  Rejected bboxes whose ``bbox_match`` is within
+                this many points of ``min_bbox_match`` (and whose text is
+                clean) are re-admitted instead of dropping the whole image,
+                raising yield without admitting genuine content/geometry
+                failures.  Set to ``0`` to restore naive discard.
             batch_size: Override the default batch size of 16.
             priority_mode: Use priority API queue (lower latency, higher cost).
         """
@@ -184,6 +193,7 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         self.max_text_errors = max_text_errors
         self.fail_on_missing_text = fail_on_missing_text
         self.dense_dump_prob = dense_dump_prob
+        self.recovery_margin = recovery_margin
         super().__init__(
             client=NVInferenceClient(priority_mode=priority_mode),
             model_name=model_id,
@@ -217,6 +227,21 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         task.data.ocr_scoring_prompt = prompt
         task.data.ocr_scoring_model = self._scoring_model_id
         return prompt
+
+    def _recover_rejected(self, task: ImageSampleTask[OCRData], ocr_items: list) -> list:
+        """Attempt provenance-grounded recovery of a would-be-discarded image.
+
+        Records the diagnosis/recovery decision on ``task.data.ocr_recovery`` and
+        returns the bboxes re-admitted as valid (empty if nothing was salvageable).
+        """
+        recovery = attempt_recovery(
+            ocr_items,
+            min_bbox_match=self.min_bbox_match,
+            max_text_errors=self.max_text_errors,
+            recovery_margin=self.recovery_margin,
+        )
+        task.data.ocr_recovery = recovery.provenance
+        return recovery.recovered
 
     def handle_response(  # noqa: C901
         self, task: ImageSampleTask[OCRData], response: str
@@ -276,12 +301,18 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
             return task
 
         if ocr_items and not valid_words:
-            task.data.is_valid = False
-            task.data.error = (
-                f"ocr_scoring_qa: no bboxes passed quality threshold "
-                f"(min_bbox_match={self.min_bbox_match}, max_text_errors={self.max_text_errors})"
-            )
-            return task
+            # Provenance-grounded adaptive recovery: rather than discarding the
+            # whole image, diagnose why each bbox failed and re-admit geometry
+            # near-misses before giving up (arXiv:2606.11127).
+            valid_words = self._recover_rejected(task, ocr_items)
+            if not valid_words:
+                task.data.is_valid = False
+                task.data.error = (
+                    f"ocr_scoring_qa: no bboxes passed quality threshold "
+                    f"(min_bbox_match={self.min_bbox_match}, max_text_errors={self.max_text_errors}); "
+                    f"recovery diagnosis={task.data.ocr_recovery['diagnosis']}"
+                )
+                return task
 
         # --- 4. Generate conversation ---
         # When OCR is provably complete (no missing text), 10% of images get a

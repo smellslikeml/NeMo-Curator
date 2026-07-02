@@ -147,7 +147,9 @@ class TestOCRScoringQAStage:
         errors: int,
         expected_valid: bool,
     ) -> None:
-        stage = _make_stage(min_bbox_match=min_match, max_text_errors=max_errors)
+        # recovery_margin=0 isolates the strict per-bbox gate; adaptive recovery
+        # is exercised separately in test_ocr_quality_recovery.py.
+        stage = _make_stage(min_bbox_match=min_match, max_text_errors=max_errors, recovery_margin=0)
         task = _make_task([_make_word([0, 0, 1, 1], "X")])
         response = _verifier_response(items=[{"idx": 0, "bbox_match": score, "text_errors": errors}])
         result = stage.handle_response(task, response)

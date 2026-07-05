@@ -17,6 +17,7 @@ from .modifier import Modify
 from .string import (
     BoilerPlateStringModifier,
     LineRemover,
+    LLMLineFilter,
     MarkdownRemover,
     NewlineNormalizer,
     QuotationRemover,
@@ -27,6 +28,7 @@ from .string import (
 __all__ = [
     "BoilerPlateStringModifier",
     "DocumentModifier",
+    "LLMLineFilter",
     "LineRemover",
     "MarkdownRemover",
     "Modify",

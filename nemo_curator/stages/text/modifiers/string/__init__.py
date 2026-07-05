@@ -14,6 +14,7 @@
 
 from .c4 import BoilerPlateStringModifier
 from .line_remover import LineRemover
+from .llm_line_filter import LLMLineFilter
 from .markdown_remover import MarkdownRemover
 from .newline_normalizer import NewlineNormalizer
 from .quotation_remover import QuotationRemover
@@ -22,6 +23,7 @@ from .url_remover import UrlRemover
 
 __all__ = [
     "BoilerPlateStringModifier",
+    "LLMLineFilter",
     "LineRemover",
     "MarkdownRemover",
     "NewlineNormalizer",

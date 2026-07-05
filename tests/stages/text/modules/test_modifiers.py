@@ -19,6 +19,7 @@ from nemo_curator.stages.text.modifiers import DocumentModifier, Modify
 from nemo_curator.stages.text.modifiers.modifier import _normalize_input_fields, _normalize_output_fields
 from nemo_curator.stages.text.modifiers.string import (
     LineRemover,
+    LLMLineFilter,
     MarkdownRemover,
     NewlineNormalizer,
     QuotationRemover,
@@ -731,3 +732,49 @@ class TestModifierUtils:
         inputs = [["a"]]
         with pytest.raises(TypeError, match=r"^output_field must be str, list\[str \| None\], or None$"):
             _normalize_output_fields(123, inputs, mods)  # type: ignore[arg-type]
+
+
+class TestLLMLineFilter:
+    def test_drops_flagged_lines_preserving_order(self) -> None:
+        def keep_unless_junk(lines: list[str]) -> list[bool]:
+            return [line.strip() != "JUNK" for line in lines]
+
+        text = "Keep this\nJUNK\nAlso keep\nJUNK\nTrailing"
+        modifier = LLMLineFilter(keep_unless_junk)
+        # Only the flagged lines are removed; surviving lines keep their order.
+        assert modifier.modify_document(text) == "Keep this\nAlso keep\nTrailing"
+
+    def test_noop_when_mask_arity_mismatches(self) -> None:
+        text = "a\nb\nc"
+
+        def short_mask(lines: list[str]) -> list[bool]:
+            return [True] * (len(lines) - 1)  # one flag short of the line count
+
+        modifier = LLMLineFilter(short_mask)
+        # An ambiguous (wrong-arity) mask leaves the document untouched.
+        assert modifier.modify_document(text) == text
+
+    def test_noop_when_all_lines_dropped(self) -> None:
+        text = "JUNK\nJUNK\nJUNK"
+
+        def drop_all(lines: list[str]) -> list[bool]:
+            return [False for _ in lines]
+
+        modifier = LLMLineFilter(drop_all)
+        # Keep the document rather than collapsing it to an empty string.
+        assert modifier.modify_document(text) == text
+
+    def test_through_modify_stage(self) -> None:
+        def keep_unless_junk(lines: list[str]) -> list[bool]:
+            return [line.strip() != "JUNK" for line in lines]
+
+        docs = [
+            "Keep\nJUNK\nKeep2",
+            "JUNK",  # every line dropped -> preserved as-is
+            "All good here",
+        ]
+        expected_results = ["Keep\nKeep2", "JUNK", "All good here"]
+        doc_batch = list_to_doc_batch(docs)
+        output = run_modify(LLMLineFilter(keep_unless_junk), doc_batch)
+        expected_df = pd.DataFrame({"text": expected_results})
+        pd.testing.assert_frame_equal(output.data.reset_index(drop=True), expected_df.reset_index(drop=True))

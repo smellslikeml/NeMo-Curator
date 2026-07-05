@@ -33,6 +33,21 @@ class LLMLineFilter(DocumentModifier):
     such as ``VLLMModel``. Model lifecycle and batching are intentionally left
     to the caller (mirroring ``LLMCleanupStage``); this modifier is purely the
     per-row keep/drop applied through the existing ``Modify`` stage.
+
+    Safe-degradation semantics: this modifier deliberately treats two edge
+    cases as pass-through rather than raising, so a partially-broken judge
+    cannot corrupt a batch downstream:
+
+    * **Wrong-arity mask** (``len(mask) != len(lines)``) is treated as "no
+      decision" and the document is returned unchanged. Alternative: raise
+      ``ValueError``, which surfaces the bug earlier but drops the row for
+      the rest of the pipeline. The pass-through choice trades diagnostic
+      loudness for pipeline robustness; wrap the judge in an assertion at
+      the caller if you prefer fail-loud.
+    * **All-drop mask** (``not any(mask)``) also returns the document
+      unchanged rather than collapsing it to an empty string. The empty
+      string would silently reduce downstream row counts without a signal
+      the pipeline could act on.
     """
 
     def __init__(self, judge: Callable[[list[str]], Iterable[bool]]) -> None:

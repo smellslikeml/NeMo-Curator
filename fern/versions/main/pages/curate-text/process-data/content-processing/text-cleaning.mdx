@@ -23,6 +23,7 @@ NeMo Curator provides the following modules for cleaning text:
 - `UnicodeReformatter`: Uses [ftfy](https://ftfy.readthedocs.io/en/latest/) to fix broken Unicode characters. Modifies the "text" field of the dataset by default. The module accepts extensive configuration options for fine-tuning Unicode repair behavior. Please see the [ftfy documentation](https://ftfy.readthedocs.io/en/latest/config.html) for more information about parameters used by the `UnicodeReformatter`.
 - `NewlineNormalizer`: Uses regex to replace 3 or more consecutive newline characters in each document with only 2 newline characters.
 - `UrlRemover`: Uses regex to remove all URLs in each document.
+- `LLMLineFilter`: Filters individual lines via a caller-supplied `judge` callable that receives the document's lines (in order) and returns a per-line keep mask (`True` to keep, `False` to drop). Only the low-quality lines (boilerplate, navigation, junk) are removed while the rest of the document and its line order are preserved — the line-level keep/drop mechanism of [FinerWeb-10BT](https://arxiv.org/abs/2501.07314). Model lifecycle and batching are left to the caller (for example a DeBERTa classifier trained on FinerWeb line labels, or a thin wrapper around a served LLM).
 
 You can use these modules individually or sequentially in a cleaning pipeline.
 
@@ -103,3 +104,21 @@ class UrlRemover(DocumentModifier):
 ```
 
 To create a custom text cleaner, inherit from the `DocumentModifier` class and implement the constructor and `modify_document` method.
+
+## Line-Level Filtering
+
+`LLMLineFilter` removes low-quality lines while preserving the rest of each document, instead of keeping or dropping whole documents. Supply any per-line `judge` callable and apply it through `Modify`, just like the other cleaners above:
+
+```python
+from nemo_curator.stages.text.modifiers import Modify
+from nemo_curator.stages.text.modifiers.string import LLMLineFilter
+
+
+def judge(lines: list[str]) -> list[bool]:
+    # Any per-line labeller: True keeps the line, False drops it.
+    return [line.strip() != "JUNK" for line in lines]
+
+
+# Applied per-row to the "text" field, as a sibling of NewlineNormalizer / UrlRemover.
+pipeline.add_stage(Modify(LLMLineFilter(judge)))
+```

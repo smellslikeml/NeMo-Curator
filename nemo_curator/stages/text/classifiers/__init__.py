@@ -28,6 +28,7 @@ _LAZY: dict[str, str] = {
     "FineWebEduClassifier": ".fineweb_edu",
     "FineWebMixtralEduClassifier": ".fineweb_edu",
     "FineWebNemotronEduClassifier": ".fineweb_edu",
+    "FinerWebQualityClassifier": ".finerweb_quality",
     "PromptTaskComplexityClassifier": ".prompt_task_complexity",
     "QualityClassifier": ".quality",
 }

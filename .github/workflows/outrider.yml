@@ -43,6 +43,11 @@ jobs:
     env:
       REMYX_API_KEY: ${{ secrets.REMYX_API_KEY }}
     steps:
+      - name: Refresh apt lists + pre-install poppler-utils
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils || true
       - name: Configure provider auth
         shell: bash
         env:
